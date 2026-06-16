@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AudioAction · tester</title>
+<style>
+  :root { --bg:#0f1320; --panel:#171c2e; --ink:#e8ecf6; --mut:#8b93ab; --acc:#5b8cff; --ok:#37d39b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
+  header { padding:14px 20px; border-bottom:1px solid #232a42; display:flex; align-items:baseline; gap:12px; }
+  header b { font-size:16px; } header span { color:var(--mut); font-size:12px; }
+  .wrap { display:grid; grid-template-columns: 360px 1fr; gap:18px; padding:18px 20px; }
+  .panel { background:var(--panel); border:1px solid #232a42; border-radius:12px; padding:16px; }
+  h3 { margin:0 0 10px; font-size:13px; color:var(--mut); text-transform:uppercase; letter-spacing:.04em; }
+  select, input[type=file] { width:100%; background:#0e1322; color:var(--ink); border:1px solid #2b3350;
+    border-radius:8px; padding:9px; font:inherit; }
+  button { background:var(--acc); color:#fff; border:0; border-radius:8px; padding:9px 14px; font:inherit;
+    font-weight:600; cursor:pointer; } button:hover { filter:brightness(1.08); }
+  button.sec { background:#283150; } button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; align-items:center; margin-top:8px; }
+  .muted { color:var(--mut); } .sp { margin-top:16px; }
+  .stage { display:flex; flex-direction:column; align-items:center; gap:10px; }
+  #lip { width:320px; height:320px; image-rendering:pixelated; background:#000; border-radius:10px; border:1px solid #2b3350; }
+  .bar { width:100%; height:6px; background:#0e1322; border-radius:4px; overflow:hidden; }
+  .bar > i { display:block; height:100%; width:0; background:var(--acc); }
+  .lat { display:grid; grid-template-columns:repeat(2,1fr); gap:8px 16px; }
+  .lat div { display:flex; justify-content:space-between; border-bottom:1px dashed #232a42; padding:4px 0; }
+  .lat b { color:var(--ok); font-variant-numeric:tabular-nums; }
+  .big { font-size:30px; font-weight:700; color:var(--ok); }
+  .err { color:#ff7a7a; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <b>AudioAction · tester</b>
+  <span id="modelinfo">audio → 13-DoF lip commands @10fps</span>
+</header>
+
+<div class="wrap">
+  <div>
+    <div class="panel">
+      <h3>1 · Pick a preset wav</h3>
+      <select id="preset"></select>
+      <div class="row"><button id="btnPreset">Test preset</button></div>
+    </div>
+    <div class="panel sp">
+      <h3>2 · Or upload a wav</h3>
+      <input type="file" id="file" accept="audio/*">
+      <div class="row"><button class="sec" id="btnFile">Test file</button></div>
+    </div>
+    <div class="panel sp">
+      <h3>Download commands (13-DoF)</h3>
+      <div class="row">
+        <button class="sec" id="dlCsv" disabled>CSV</button>
+        <button class="sec" id="dlJson" disabled>JSON</button>
+        <button class="sec" id="dlNpy" disabled>NPY</button>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h3>Visualization &amp; latency</h3>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:18px;">
+        <div class="stage">
+          <img id="lip" alt="lip">
+          <audio id="audio" controls style="width:100%"></audio>
+          <div class="bar"><i id="prog"></i></div>
+          <div class="muted"><span id="framelbl">frame –/–</span></div>
+        </div>
+        <div>
+          <div class="muted">model latency</div>
+          <div class="big"><span id="ms">–</span> ms</div>
+          <div class="muted" id="speedup"></div>
+          <div class="lat sp">
+            <div><span>active model</span><b id="mdl">–</b></div>
+            <div><span>audio length</span><b id="alen">–</b></div>
+            <div><span>command frames</span><b id="nf">–</b></div>
+            <div><span>real-time factor</span><b id="rtf">–</b></div>
+            <div><span>speedup</span><b id="spx">–</b></div>
+            <div><span>HTTP round-trip</span><b id="rt">–</b></div>
+            <div><span>unique poses</span><b id="uniq">–</b></div>
+            <div><span>fps</span><b>10</b></div>
+          </div>
+          <div class="err sp" id="err"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let FRAMES = [], COMMANDS = [], RAF = null;
+
+async function presets() {
+  const d = await (await fetch('/api/presets')).json();
+  $('#modelinfo').textContent = 'audio → 13-DoF lip commands @10fps   ·   model: ' + d.model_url;
+  $('#preset').innerHTML = d.wavs.map(w => `<option value="${w.name}">${w.name} — ${w.label}</option>`).join('');
+}
+presets();
+
+function setBusy(b){ $('#btnPreset').disabled=b; $('#btnFile').disabled=b; }
+function fmt(x,u){ return (x==null?'–':x+(u||'')); }
+
+async function infer(blob, audioUrl){
+  $('#err').textContent=''; setBusy(true); stop();
+  try{
+    const d = await (await fetch('/api/infer',{method:'POST',headers:{'Content-Type':'audio/wav'},body:blob})).json();
+    if(d.error) throw new Error(d.error);
+    FRAMES = d.frames; COMMANDS = d.commands;
+    const t = d.model_timing || {};
+    $('#ms').textContent = (t.compute_ms!=null? t.compute_ms : '–');
+    $('#speedup').textContent = t.speedup_x ? (t.speedup_x+'× real-time  ·  '+t.compute_ms+' ms for '+t.audio_s+' s audio') : '';
+    $('#mdl').textContent = d.model || '–';
+    $('#alen').textContent = fmt(t.audio_s,' s'); $('#nf').textContent = d.n_frames;
+    $('#rtf').textContent = fmt(t.rtf); $('#spx').textContent = fmt(t.speedup_x,'×');
+    $('#rt').textContent = fmt(d.roundtrip_ms,' ms'); $('#uniq').textContent = d.n_unique_poses;
+    prefetch(FRAMES);
+    $('#audio').src = audioUrl; $('#audio').play().catch(()=>{});
+    $('#dlCsv').disabled=$('#dlJson').disabled=$('#dlNpy').disabled=false;
+  }catch(e){ $('#err').textContent = 'Error: '+e.message; }
+  setBusy(false);
+}
+
+function prefetch(frames){ [...new Set(frames)].forEach(n => { const im=new Image(); im.src='/lip/'+n; });
+  if(frames.length) $('#lip').src='/lip/'+frames[0]; }
+
+function tick(){
+  const a=$('#audio'); const fr=Math.min(FRAMES.length-1, Math.floor(a.currentTime*10));
+  if(fr>=0 && FRAMES.length){ $('#lip').src='/lip/'+FRAMES[fr];
+    $('#framelbl').textContent='frame '+(fr+1)+'/'+FRAMES.length;
+    $('#prog').style.width = (100*(fr+1)/FRAMES.length)+'%'; }
+  RAF = requestAnimationFrame(tick);
+}
+function stop(){ if(RAF) cancelAnimationFrame(RAF); RAF=null; }
+$('#audio').addEventListener('play', ()=>{ stop(); tick(); });
+$('#audio').addEventListener('pause', stop);
+$('#audio').addEventListener('seeked', ()=>{ if(!RAF) tick(); });
+
+$('#btnPreset').onclick = async () => {
+  const name=$('#preset').value; if(!name) return;
+  const url='/twav/'+name; const wav=await (await fetch(url)).blob(); infer(wav, url);
+};
+$('#btnFile').onclick = async () => {
+  const f=$('#file').files[0]; if(!f) return; infer(f, URL.createObjectURL(f));
+};
+
+function download(name, blob){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=name; a.click(); }
+$('#dlCsv').onclick = () => {
+  let s='time_s,'+Array.from({length:13},(_,j)=>'dof'+j).join(',')+'\n';
+  COMMANDS.forEach((c,i)=> s += (i/10).toFixed(2)+','+c.map(x=>x.toFixed(5)).join(',')+'\n');
+  download('commands.csv', new Blob([s],{type:'text/csv'}));
+};
+$('#dlJson').onclick = () => download('commands.json',
+  new Blob([JSON.stringify({fps:10,dof:13,commands:COMMANDS})],{type:'application/json'}));
+function buildNpy(cmds){
+  const T=cmds.length, D=cmds[0]?cmds[0].length:13;
+  let hdr=`{'descr': '<f4', 'fortran_order': False, 'shape': (${T}, ${D}), }`;
+  const pre=10; let pad=(64-((pre+hdr.length+1)%64))%64; hdr+=' '.repeat(pad)+'\n';
+  const buf=new ArrayBuffer(pre+hdr.length+T*D*4); const dv=new DataView(buf); const u8=new Uint8Array(buf);
+  u8.set([0x93,0x4E,0x55,0x4D,0x50,0x59,1,0]); dv.setUint16(8,hdr.length,true);
+  for(let i=0;i<hdr.length;i++) u8[pre+i]=hdr.charCodeAt(i);
+  let off=pre+hdr.length;
+  for(let i=0;i<T;i++) for(let j=0;j<D;j++){ dv.setFloat32(off,cmds[i][j],true); off+=4; }
+  return new Blob([buf],{type:'application/octet-stream'});
+}
+$('#dlNpy').onclick = () => { if(COMMANDS.length) download('commands.npy', buildNpy(COMMANDS)); };
+</script>
+</body>
+</html>

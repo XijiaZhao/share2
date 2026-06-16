@@ -1,0 +1,12 @@
+# Test-app configuration
+host: 0.0.0.0
+port: 8026
+model_url: http://localhost:8025    # the running model server (deliver/config.yml)
+
+# visualization assets (a reference-pose pack used to render a lip photo per command frame)
+assets_dir: assets                  # contains commands.npy and lip_128/NNNNN_lip.jpg
+lip_subdir: lip_128
+commands_npy: commands.npy
+
+# preset wavs shown in the picker
+testwav_dir: testwav

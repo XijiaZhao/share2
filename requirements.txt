@@ -1,0 +1,7 @@
+# GPU (NVIDIA, CUDA 12.1):  pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+# CPU-only:                 pip install torch==2.5.1
+# (Python 3.9-3.12)
+torch==2.5.1
+numpy
+soundfile
+pyyaml

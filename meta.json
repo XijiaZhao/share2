@@ -1,0 +1,25 @@
+{
+  "name": "AudioAction",
+  "version": "1.0",
+  "format": "torchscript",
+  "input": {
+    "sample_rate": 16000,
+    "channels": 1,
+    "format": "16 kHz mono PCM"
+  },
+  "output": {
+    "name": "commands",
+    "dof": 13,
+    "fps": 10,
+    "range": [
+      0,
+      1
+    ],
+    "note": "13-DoF servo command per 10 fps frame; 4 DoF are derived internally"
+  },
+  "device": "cuda or cpu",
+  "models": [
+    "a",
+    "b"
+  ]
+}
