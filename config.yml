@@ -6,7 +6,9 @@ warmup: true           # warm up at startup so the first request is steady-state
 max_audio_seconds: 300 # reject single requests longer than this
 
 # select which model to serve
-model: a               # one of the keys in `models` below
+model: zha             # one of the keys in `models` below
 models:
-  a: audioaction_a.pt
-  b: audioaction_b.pt
+  a: audioaction_a.pt              # English — all data
+  b: audioaction_b.pt              # English — held-out variant
+  zha: audioaction_zha.pt          # combined EN+ZH all-data (Chinese-capable) — default
+  zhb: audioaction_zhb.pt          # combined EN+ZH held-out variant

@@ -20,6 +20,8 @@
   "device": "cuda or cpu",
   "models": [
     "a",
-    "b"
+    "b",
+    "zha",
+    "zhb"
   ]
 }
