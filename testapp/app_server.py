@@ -29,7 +29,7 @@ def load_config(path):
            "testwav_dir": "testwav"}
     p = Path(path)
     if p.is_file():
-        cfg.update(yaml.safe_load(p.read_text()) or {})
+        cfg.update(yaml.safe_load(p.read_text(encoding="utf-8")) or {})
     return cfg
 
 
@@ -96,7 +96,7 @@ class Handler(BaseHTTPRequestHandler):
             for p in sorted(d.glob("*.wav")) if d.is_dir() else []:
                 txt = p.with_suffix(".txt")
                 wavs.append({"name": p.name,
-                             "label": txt.read_text().strip()[:60] if txt.is_file() else p.stem})
+                             "label": txt.read_text(encoding="utf-8", errors="replace").strip()[:60] if txt.is_file() else p.stem})
             return self._send(200, {"wavs": wavs, "model_url": CFG["model_url"]})
         if path.startswith("/lip/"):
             img = _abs(CFG["assets_dir"]) / CFG["lip_subdir"] / f"{int(path[5:]):05d}_lip.jpg"

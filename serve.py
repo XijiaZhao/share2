@@ -38,7 +38,7 @@ def load_config(path):
            "max_audio_seconds": 300, "model": "a", "models": {"a": "audioaction_a.pt"}}
     p = Path(path)
     if p.is_file():
-        cfg.update(yaml.safe_load(p.read_text()) or {})
+        cfg.update(yaml.safe_load(p.read_text(encoding="utf-8")) or {})
     return cfg
 
 
@@ -174,7 +174,7 @@ def main():
     mp = models[ACTIVE]
     mp = mp if Path(mp).is_absolute() else HERE / mp
     mj = HERE / "meta.json"
-    META = json.loads(mj.read_text()) if mj.is_file() else {}
+    META = json.loads(mj.read_text(encoding="utf-8")) if mj.is_file() else {}
 
     print(f"loading model '{ACTIVE}': {mp}  (device={CFG['device']})", flush=True)
     MODEL = Model(str(mp), device=CFG["device"])
