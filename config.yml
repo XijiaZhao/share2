@@ -8,7 +8,9 @@ max_audio_seconds: 300 # reject single requests longer than this
 # select which model to serve
 model: zha             # one of the keys in `models` below
 models:
-  a: audioaction_a.pt              # English — all data
-  b: audioaction_b.pt              # English — held-out variant
-  zha: audioaction_zha.pt          # combined EN+ZH all-data (Chinese-capable) — default
-  zhb: audioaction_zhb.pt          # combined EN+ZH held-out variant
+  a: audioaction_a.pt              # English — all data                       (output [0,1])
+  b: audioaction_b.pt              # English — held-out variant               (output [0,1])
+  zha: audioaction_zha.pt          # combined EN+ZH all-data (Chinese-capable) — default  (output [0,1])
+  xba: audioaction_xba.pt          # round-2 WIDE-RANGE, voice zf_xiaobei, all-data   (output TRUE ~[-1.0,1.6])
+# NOTE: xba emits the TRUE wide-range command (per-DoF ranges_xb in meta.json), NOT [0,1].
+#       Its PWM map must cover that range. To serve it:  model: xba   (or `--model xba`).

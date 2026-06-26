@@ -9,7 +9,10 @@ INPUT   16 kHz mono audio   ────────►   OUTPUT   13-DoF servo 
 ## Contents
 
 ```
-audioaction_a.pt / audioaction_b.pt   the model files (TorchScript; pick one in config.yml)
+audioaction_*.pt            the model files (TorchScript; pick one in config.yml):
+                              a, b   English             (output [0,1])
+                              zha    English + Chinese    (output [0,1])
+                              xba    English + Chinese, ROUND-2 WIDE RANGE (output TRUE ~[-1.0,1.6])
 config.yml                  host, port, device, and which model to serve
 meta.json                   input/output contract
 serve.py                    runs the model on a port
@@ -54,17 +57,63 @@ docker run -p 8025:8025 audioaction:1.0                # CPU only (omit --gpus)
 
 ## Choosing the model
 
-There are two model files. Select which one to serve in `config.yml`:
+There are four model files. Select which one to serve in `config.yml`:
 
 ```yaml
 device: auto        # auto | cuda | cpu
-model: a            # or: b
+model: zha          # a | b | zha | xba   (default zha)
 models:
-  a: audioaction_a.pt
-  b: audioaction_b.pt
+  a:   audioaction_a.pt     # English                      output [0,1]
+  b:   audioaction_b.pt     # English, held-out variant    output [0,1]
+  zha: audioaction_zha.pt   # English+Chinese              output [0,1]
+  xba: audioaction_xba.pt   # English+Chinese, WIDE RANGE  output TRUE ~[-1.0,1.6]
 ```
 
-or override at launch: `python serve.py --model b`. Check the active model with `GET /healthz`.
+or override at launch: `python serve.py --model xba`. Check the active model with `GET /healthz`.
+**Default stays `zha` (`[0,1]`)** so existing `[0,1]→PWM` integrations are unaffected; switch to
+`xba` only once your PWM map covers the wide range (see the next section).
+
+## Output range — the wide-range `xba` model (read before mapping to PWM)
+
+`xba` is the shipped round-2 model: combined English + Chinese (voice `zf_xiaobei`), trained on all
+data. It deliberately **widens the motion**, so unlike `a/b/zha` it does **not** output `[0,1]`.
+
+**Normalized vs. true range — what actually comes out of the wire.** The network core always emits a
+**normalized** value in **[0,1]** per independent DoF (a sigmoid). The robot's **true** command is
+recovered by a *fixed* per-DoF affine map `true = lo + norm·(hi − lo)` plus reconstruction of the 4
+slaved (right-side mirror) DoF. For `a/b/zha` that map is the identity (`lo=0, hi=1`), so their output
+is already the true command in **[0,1]**. For **`xba`** the `lo/hi` span a wider range, so the true
+command runs roughly **[−1.0 … +1.6]**.
+
+We **bake that de-normalization into `audioaction_xba.pt`**, so it outputs the **TRUE wide-range
+command directly** — your PWM map consumes real commands, no extra step. Per-DoF motor name and true
+range (these are the PWM anchors):
+
+| DoF | motor | lo | hi | kind |
+|---|---|---|---|---|
+| 0  | upperlip_center_fwd | 0.33  | 0.90 | indep |
+| 1  | upperlip_center_up  | 0.33  | 0.33 | const |
+| 2  | lowerlip_center_fwd | 0.00  | 0.69 | indep |
+| 3  | lowerlip_center_up  | 0.33  | 0.33 | const |
+| 4  | upperlip_fwd_L      | 0.00  | 0.27 | indep |
+| 5  | upperlip_fwd_R      | 0.00  | 0.27 | slaved = 0.272 − c4 |
+| 6  | lowerlip_up_L       | 0.30  | 1.20 | indep |
+| 7  | lowerlip_up_R       | −0.26 | 0.64 | slaved = 0.944 − c6 |
+| 8  | corner_frontback_L  | −1.00 | 0.23 | indep |
+| 9  | corner_updown_L     | −0.60 | 0.90 | indep |
+| 10 | corner_frontback_R  | 0.24  | 1.47 | slaved = 0.467 − c8 |
+| 11 | corner_updown_R     | 0.10  | 1.60 | slaved = 1.0 − c9 |
+| 12 | jaw_fwd             | 0.00  | 1.00 | indep |
+
+Overall envelope **[−1.0, +1.6]**. DoF **1 & 3 are constant** at 0.33; DoF **5, 7, 10, 11 are the
+right-side mirrors** (slaved: `right = zone_max − left`, derived internally from 4, 6, 8, 9). Output
+**shape is unchanged: `(T, 13)` at 10 fps** — only the numeric range is wider, and unlike `a/b/zha` it
+**can go negative and exceed 1.0**.
+
+> **⚠ PWM mapping differs for `xba`.** `a/b/zha` emit `[0,1]`, so an existing `[0,1]→PWM` table works
+> for them. **`xba` emits the wider `[−1.0…+1.6]`** (per-DoF as above), so its PWM table must cover that
+> range — the natural mapping is per-DoF `lo → min-PWM`, `hi → max-PWM` using the table.
+> **Do not feed `xba` output into a `[0,1]`-only PWM map** — values would clip or wrap.
 
 ## API
 
@@ -87,9 +136,12 @@ curl -s -N -X POST --data-binary @clip.wav "http://localhost:8025/stream?paced=1
 ```
 
 **Output:** `commands[t]` is the 13-DoF servo vector for 10 fps frame `t` (covering audio seconds
-`t/10 … (t+1)/10`), each value in `[0,1]`. Stream the rows straight to the servos at 10 fps. On a GPU,
-compute is a few milliseconds per clip (far faster than real time); on CPU it's slower but still well
-within real time for short clips.
+`t/10 … (t+1)/10`). For `a/b/zha` each value is in `[0,1]`; for the wide-range `xba` model each
+value is the **TRUE** command in roughly `[−1.0…+1.6]` (per-DoF ranges and the PWM note are in the
+[Output range](#output-range--the-wide-range-xba-model-read-before-mapping-to-pwm)
+section above). Stream the rows straight to the servos at 10 fps. On a GPU, compute is a few
+milliseconds per clip (far faster than real time); on CPU it's slower but still well within real time
+for short clips.
 
 ## Quick check without the server
 
