@@ -23,12 +23,14 @@ python app_server.py --config config.yml
 
 ## Visualization assets
 
-The lip-photo preview uses a reference-pose pack bundled in `assets/`:
-- `assets/commands.npy` — `(N,13)` reference command table
-- `assets/lip_128/NNNNN_lip.jpg` — the matching lip photos
+The lip-photo preview uses a reference-pose pack bundled in `assets/` (the **round-2 wide-range**
+pack, so it renders the `xba` model's `[-1.0,1.6]` motion faithfully):
+- `assets/commands.npy` — `(10368, 13)` TRUE reference command table (range ~`[-1.0, 1.6]`)
+- `assets/lip_256/NNNNN_lip.jpg` — the matching 10,368 lip photos (1-based: pose row `i` → `{i+1:05d}_lip.jpg`)
 
-These are included. (Commands + latency + download work even without them; only the photo preview
-needs them.)
+Each predicted frame is matched to the nearest pose row and the corresponding photo is shown. The
+`[0,1]` models (`a`/`b`/`zha`) map into the same pack fine. (Commands + latency + download work even
+without the photos; only the preview needs them.)
 
 ## Config (`config.yml`)
 - `model_url` — the running model server (default `http://localhost:8025`).
