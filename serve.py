@@ -28,9 +28,40 @@ from urllib.parse import urlparse, parse_qs
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import audio_frontend as af
-from runtime import Model, FPS, DOF
+from runtime import Model, FPS, DOF, resample_commands
 
 CFG, MODEL, META, ACTIVE = {}, None, {}, None
+
+FPS_MIN, FPS_MAX = 1, 50
+
+
+def _resolve_fps(q):
+    """Effective output fps: ?fps=N (per-request) > config target_fps > native FPS.
+
+    Clamped to [FPS_MIN, FPS_MAX]; out-of-range or unparseable falls back to native FPS
+    (no resample). Returns an int.
+    """
+    val = None
+    if q and "fps" in q:
+        try:
+            val = float(q["fps"][0])
+        except (TypeError, ValueError):
+            val = None
+    if val is None:
+        cfg_val = CFG.get("target_fps")
+        if cfg_val not in (None, "", 0):
+            try:
+                val = float(cfg_val)
+            except (TypeError, ValueError):
+                val = None
+    if val is None:
+        return FPS
+    val = int(round(val))
+    if val < FPS_MIN or val > FPS_MAX:
+        print(f"[serve] target fps {val} out of range [{FPS_MIN},{FPS_MAX}] — using native {FPS}",
+              flush=True)
+        return FPS
+    return val
 
 
 def load_config(path):
@@ -82,7 +113,7 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/healthz":
             return self._send(200, {"status": "ok", "model": ACTIVE, "fps": FPS, "dof": DOF,
-                                    "device": MODEL.device})
+                                    "target_fps": _resolve_fps(None), "device": MODEL.device})
         if path == "/meta":
             return self._send(200, {**META, "model": ACTIVE})
         if path in ("/", "/index.html"):
@@ -112,6 +143,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def _infer(self, audio, q):
         cmd, timing = MODEL.infer_timed(audio)
+        eff_fps = _resolve_fps(q)
+        if eff_fps != FPS:
+            cmd = resample_commands(cmd, FPS, eff_fps)
+            timing = {**timing, "fps": eff_fps, "n_frames": int(len(cmd))}
         fmt = (q.get("format", ["json"])[0]).lower()
         if fmt == "npy":
             buf = io.BytesIO(); np.save(buf, cmd.astype(np.float32))
@@ -119,19 +154,23 @@ class Handler(BaseHTTPRequestHandler):
                               extra={"Content-Disposition": "attachment; filename=commands.npy",
                                      "X-Timing": json.dumps(timing)})
         if fmt == "csv":
-            t = (np.arange(len(cmd)) / FPS)[:, None]
+            t = (np.arange(len(cmd)) / eff_fps)[:, None]
             hdr = "time_s," + ",".join(f"dof{j}" for j in range(DOF))
             txt = io.StringIO(); np.savetxt(txt, np.concatenate([t, cmd], 1), delimiter=",",
                                             header=hdr, comments="", fmt="%.5f")
             return self._send(200, txt.getvalue(), ctype="text/csv",
                               extra={"Content-Disposition": "attachment; filename=commands.csv",
                                      "X-Timing": json.dumps(timing)})
-        return self._send(200, {"n_frames": int(len(cmd)), "fps": FPS, "dof": DOF, "model": ACTIVE,
+        return self._send(200, {"n_frames": int(len(cmd)), "fps": eff_fps, "dof": DOF, "model": ACTIVE,
                                 "commands": np.round(cmd, 5).tolist(), "timing": timing})
 
     def _stream(self, audio, q):
         paced = q.get("paced", ["0"])[0] in ("1", "true", "yes")
         cmd, timing = MODEL.infer_timed(audio)
+        eff_fps = _resolve_fps(q)
+        if eff_fps != FPS:
+            cmd = resample_commands(cmd, FPS, eff_fps)
+            timing = {**timing, "fps": eff_fps, "n_frames": int(len(cmd))}
         self.send_response(200)
         self.send_header("Content-Type", "application/x-ndjson")
         self.send_header("Transfer-Encoding", "chunked")
@@ -142,14 +181,14 @@ class Handler(BaseHTTPRequestHandler):
             line = (json.dumps(obj) + "\n").encode()
             self.wfile.write(f"{len(line):X}\r\n".encode() + line + b"\r\n"); self.wfile.flush()
 
-        chunk({"event": "start", "n_frames": int(len(cmd)), "fps": FPS, "timing": timing})
+        chunk({"event": "start", "n_frames": int(len(cmd)), "fps": eff_fps, "timing": timing})
         t0 = time.time()
         for i in range(len(cmd)):
             if paced:
-                dt = t0 + i / FPS - time.time()
+                dt = t0 + i / eff_fps - time.time()
                 if dt > 0:
                     time.sleep(dt)
-            chunk({"i": i, "t": round(i / FPS, 3), "cmd": np.round(cmd[i], 5).tolist()})
+            chunk({"i": i, "t": round(i / eff_fps, 3), "cmd": np.round(cmd[i], 5).tolist()})
         chunk({"event": "end"})
         self.wfile.write(b"0\r\n\r\n"); self.wfile.flush()
 
@@ -160,12 +199,16 @@ def main():
     ap.add_argument("--config", default=str(HERE / "config.yml"))
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--model", default=None, help="override the model id in config (e.g. a, b)")
+    ap.add_argument("--fps", type=float, default=None,
+                    help="resample output to this fps for all requests (default: native 10)")
     args = ap.parse_args()
     CFG = load_config(args.config)
     if args.port:
         CFG["port"] = args.port
     if args.model:
         CFG["model"] = args.model
+    if args.fps:
+        CFG["target_fps"] = args.fps
 
     ACTIVE = CFG["model"]
     models = CFG.get("models", {})

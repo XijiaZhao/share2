@@ -19,6 +19,29 @@ DOF = 13
 FPS = 10
 
 
+def resample_commands(cmd: np.ndarray, src_fps: float, dst_fps: float) -> np.ndarray:
+    """Resample a (T, DOF) command array from src_fps to dst_fps via per-DoF linear
+    interpolation, preserving wall-clock duration (T / src_fps seconds).
+
+    Upsampling smooths motion with interpolated frames; downsampling decimates to save
+    bandwidth. Returns the input unchanged when rates match or there are <2 frames.
+    """
+    cmd = np.asarray(cmd, dtype=np.float32)
+    T = cmd.shape[0]
+    if dst_fps <= 0 or dst_fps == src_fps or T < 2:
+        return cmd
+    dur = T / src_fps
+    T2 = max(1, int(round(dur * dst_fps)))
+    if T2 == T:
+        return cmd
+    src_t = np.arange(T, dtype=np.float64) / src_fps
+    dst_t = np.arange(T2, dtype=np.float64) / dst_fps
+    out = np.empty((T2, cmd.shape[1]), dtype=np.float32)
+    for j in range(cmd.shape[1]):
+        out[:, j] = np.interp(dst_t, src_t, cmd[:, j])
+    return out
+
+
 def pick_device(device=None):
     if device in (None, "", "auto"):
         return "cuda" if torch.cuda.is_available() else "cpu"
