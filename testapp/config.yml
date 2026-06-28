@@ -1,7 +1,7 @@
 # Test-app configuration
 host: 0.0.0.0
 port: 8026
-model_url: http://localhost:8025    # the running model server (deliver/config.yml)
+model_url: http://127.0.0.1:8025    # the running model server (deliver/config.yml)
 
 # visualization assets (a reference-pose pack used to render a lip photo per command frame)
 # round-2 wide-range pack: commands.npy (10368,13 TRUE [-1.0,1.6]) + lip_256/NNNNN_lip.jpg
