@@ -15,13 +15,106 @@
       0,
       1
     ],
-    "note": "13-DoF servo command per 10 fps frame; 4 DoF are derived internally"
+    "range_note": "[0,1] applies to models a/b/zha. Wide-range model xba outputs the TRUE per-DoF command (see ranges_xb), envelope ~[-1.0,+1.6].",
+    "note": "13-DoF servo command per 10 fps frame; DoF 5,7,10,11 derived internally; DoF 1,3 constant 0.33"
   },
   "device": "cuda or cpu",
   "models": [
     "a",
     "b",
     "zha",
-    "zhb"
-  ]
+    "xba"
+  ],
+  "model_info": {
+    "a": {
+      "lang": "en",
+      "data": "all",
+      "output": "normalized [0,1]"
+    },
+    "b": {
+      "lang": "en",
+      "data": "held-out (validated)",
+      "output": "normalized [0,1]"
+    },
+    "zha": {
+      "lang": "en+zh",
+      "data": "all",
+      "output": "normalized [0,1]"
+    },
+    "xba": {
+      "lang": "en+zh",
+      "voice": "zf_xiaobei",
+      "data": "all (round-2 wide range)",
+      "output": "TRUE wide-range (ranges_xb)",
+      "wide_range": true,
+      "velP9": 0.426,
+      "openness_pc1": 0.812
+    }
+  },
+  "ranges_xb": {
+    "applies_to": [
+      "xba"
+    ],
+    "dof": 13,
+    "motors": [
+      "upperlip_center_fwd",
+      "upperlip_center_up",
+      "lowerlip_center_fwd",
+      "lowerlip_center_up",
+      "upperlip_fwd_L",
+      "upperlip_fwd_R",
+      "lowerlip_up_L",
+      "lowerlip_up_R",
+      "corner_frontback_L",
+      "corner_updown_L",
+      "corner_frontback_R",
+      "corner_updown_R",
+      "jaw_fwd"
+    ],
+    "lo": [
+      0.33,
+      0.33,
+      0.0,
+      0.33,
+      0.0,
+      0.0,
+      0.3,
+      -0.256,
+      -1.0,
+      -0.6,
+      0.237,
+      0.1,
+      0.0
+    ],
+    "hi": [
+      0.9,
+      0.33,
+      0.69,
+      0.33,
+      0.272,
+      0.272,
+      1.2,
+      0.644,
+      0.23,
+      0.9,
+      1.467,
+      1.6,
+      1.0
+    ],
+    "envelope": [
+      -1.0,
+      1.6
+    ],
+    "constant_dof": [
+      1,
+      3
+    ],
+    "slaved_dof": [
+      5,
+      7,
+      10,
+      11
+    ],
+    "note": "true = lo + normalized*(hi-lo); ALREADY baked into xba output. PWM map keys to per-DoF lo->min-PWM, hi->max-PWM."
+  }
 }

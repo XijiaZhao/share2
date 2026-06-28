@@ -1,0 +1,4 @@
+# Lip-photo pack (~203 MB, 10368 imgs) — shipped separately, not tracked in git.
+# Keep this folder in the repo but ignore its image contents.
+*
+!.gitignore

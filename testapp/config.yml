@@ -4,8 +4,10 @@ port: 8026
 model_url: http://localhost:8025    # the running model server (deliver/config.yml)
 
 # visualization assets (a reference-pose pack used to render a lip photo per command frame)
-assets_dir: assets                  # contains commands.npy and lip_128/NNNNN_lip.jpg
-lip_subdir: lip_128
+# round-2 wide-range pack: commands.npy (10368,13 TRUE [-1.0,1.6]) + lip_256/NNNNN_lip.jpg
+# matches the xba model's wide-range output (faithful preview; the [0,1] models also map fine).
+assets_dir: assets                  # contains commands.npy and lip_256/NNNNN_lip.jpg
+lip_subdir: lip_256
 commands_npy: commands.npy
 
 # preset wavs shown in the picker
