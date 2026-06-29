@@ -34,7 +34,7 @@
 <body>
 <header>
   <b>AudioAction · tester</b>
-  <span id="modelinfo">audio → 13-DoF lip commands @10fps</span>
+  <span id="modelinfo">audio → 13-DoF lip commands</span>
 </header>
 
 <div class="wrap">
@@ -81,7 +81,7 @@
             <div><span>speedup</span><b id="spx">–</b></div>
             <div><span>HTTP round-trip</span><b id="rt">–</b></div>
             <div><span>unique poses</span><b id="uniq">–</b></div>
-            <div><span>fps</span><b>10</b></div>
+            <div><span>fps</span><b id="fpsval">10</b></div>
           </div>
           <div class="err sp" id="err"></div>
         </div>
@@ -92,11 +92,11 @@
 
 <script>
 const $ = s => document.querySelector(s);
-let FRAMES = [], COMMANDS = [], RAF = null;
+let FRAMES = [], COMMANDS = [], RAF = null, FPS = 10;
 
 async function presets() {
   const d = await (await fetch('/api/presets')).json();
-  $('#modelinfo').textContent = 'audio → 13-DoF lip commands @10fps   ·   model: ' + d.model_url;
+  $('#modelinfo').textContent = 'audio → 13-DoF lip commands   ·   model: ' + d.model_url;
   $('#preset').innerHTML = d.wavs.map(w => `<option value="${w.name}">${w.name} — ${w.label}</option>`).join('');
 }
 presets();
@@ -109,7 +109,8 @@ async function infer(blob, audioUrl){
   try{
     const d = await (await fetch('/api/infer',{method:'POST',headers:{'Content-Type':'audio/wav'},body:blob})).json();
     if(d.error) throw new Error(d.error);
-    FRAMES = d.frames; COMMANDS = d.commands;
+    FRAMES = d.frames; COMMANDS = d.commands; FPS = d.fps || 10;
+    $('#fpsval').textContent = FPS;
     const t = d.model_timing || {};
     $('#ms').textContent = (t.compute_ms!=null? t.compute_ms : '–');
     $('#speedup').textContent = t.speedup_x ? (t.speedup_x+'× real-time  ·  '+t.compute_ms+' ms for '+t.audio_s+' s audio') : '';
@@ -128,7 +129,7 @@ function prefetch(frames){ [...new Set(frames)].forEach(n => { const im=new Imag
   if(frames.length) $('#lip').src='/lip/'+frames[0]; }
 
 function tick(){
-  const a=$('#audio'); const fr=Math.min(FRAMES.length-1, Math.floor(a.currentTime*10));
+  const a=$('#audio'); const fr=Math.min(FRAMES.length-1, Math.floor(a.currentTime*FPS));
   if(fr>=0 && FRAMES.length){ $('#lip').src='/lip/'+FRAMES[fr];
     $('#framelbl').textContent='frame '+(fr+1)+'/'+FRAMES.length;
     $('#prog').style.width = (100*(fr+1)/FRAMES.length)+'%'; }
@@ -151,11 +152,11 @@ function download(name, blob){ const a=document.createElement('a'); a.href=URL.c
   a.download=name; a.click(); }
 $('#dlCsv').onclick = () => {
   let s='time_s,'+Array.from({length:13},(_,j)=>'dof'+j).join(',')+'\n';
-  COMMANDS.forEach((c,i)=> s += (i/10).toFixed(2)+','+c.map(x=>x.toFixed(5)).join(',')+'\n');
+  COMMANDS.forEach((c,i)=> s += (i/FPS).toFixed(2)+','+c.map(x=>x.toFixed(5)).join(',')+'\n');
   download('commands.csv', new Blob([s],{type:'text/csv'}));
 };
 $('#dlJson').onclick = () => download('commands.json',
-  new Blob([JSON.stringify({fps:10,dof:13,commands:COMMANDS})],{type:'application/json'}));
+  new Blob([JSON.stringify({fps:FPS,dof:13,commands:COMMANDS})],{type:'application/json'}));
 function buildNpy(cmds){
   const T=cmds.length, D=cmds[0]?cmds[0].length:13;
   let hdr=`{'descr': '<f4', 'fortran_order': False, 'shape': (${T}, ${D}), }`;

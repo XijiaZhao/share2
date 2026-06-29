@@ -60,7 +60,8 @@ def call_model(wav_bytes):
         res = json.loads(r.read())
     if "error" in res:
         raise RuntimeError(res["error"])
-    return np.asarray(res["commands"], np.float32), res.get("timing", {}), res.get("model")
+    return (np.asarray(res["commands"], np.float32), res.get("timing", {}),
+            res.get("model"), int(res.get("fps", 10) or 10))
 
 
 def find_wav(name):
@@ -120,7 +121,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, {"error": "empty audio"})
         try:
             t0 = time.time()
-            cmd, timing, model_id = call_model(wav)
+            cmd, timing, model_id, fps = call_model(wav)
             t_model = time.time() - t0
             t1 = time.time()
             frames, n_unique = nearest_frames(cmd)
@@ -129,7 +130,7 @@ class Handler(BaseHTTPRequestHandler):
             import traceback; traceback.print_exc()
             return self._send(500, {"error": f"{type(e).__name__}: {e}"})
         return self._send(200, {
-            "n_frames": int(len(cmd)), "fps": 10, "dof": 13, "model": model_id,
+            "n_frames": int(len(cmd)), "fps": fps, "dof": 13, "model": model_id,
             "commands": np.round(cmd, 5).tolist(), "frames": frames, "n_unique_poses": n_unique,
             "model_timing": timing, "roundtrip_ms": round(t_model * 1000, 1),
             "render_ms": round(t_nn * 1000, 1)})
