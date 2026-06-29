@@ -4,7 +4,7 @@ port: 8025             # serve on this port
 device: auto           # auto | cuda | cpu   (auto = use GPU if present, else CPU)
 warmup: true           # warm up at startup so the first request is steady-state
 max_audio_seconds: 300 # reject single requests longer than this
-target_fps: 5          # output frame rate sent to clients; empty = native 10 fps.
+target_fps: 20           # output frame rate sent to clients; empty = native 10 fps.
                        # non-10 resamples (up = smoother/more data, down = fewer/less data),
                        # preserving audio duration. clamped to 1-50. per-request override: /infer?fps=N
 
