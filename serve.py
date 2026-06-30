@@ -28,7 +28,7 @@ from urllib.parse import urlparse, parse_qs
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import audio_frontend as af
-from runtime import Model, FPS, DOF, resample_commands
+from runtime import Model, DOF, resample_commands
 
 CFG, MODEL, META, ACTIVE = {}, None, {}, None
 
@@ -36,10 +36,10 @@ FPS_MIN, FPS_MAX = 1, 50
 
 
 def _resolve_fps(q):
-    """Effective output fps: ?fps=N (per-request) > config target_fps > native FPS.
+    """Effective output fps: ?fps=N (per-request) > config target_fps > model native fps.
 
-    Clamped to [FPS_MIN, FPS_MAX]; out-of-range or unparseable falls back to native FPS
-    (no resample). Returns an int.
+    Clamped to [FPS_MIN, FPS_MAX]; out-of-range or unparseable falls back to the model's
+    native fps (MODEL.fps, auto-detected per model — no resample). Returns an int.
     """
     val = None
     if q and "fps" in q:
@@ -55,12 +55,12 @@ def _resolve_fps(q):
             except (TypeError, ValueError):
                 val = None
     if val is None:
-        return FPS
+        return MODEL.fps
     val = int(round(val))
     if val < FPS_MIN or val > FPS_MAX:
-        print(f"[serve] target fps {val} out of range [{FPS_MIN},{FPS_MAX}] — using native {FPS}",
+        print(f"[serve] target fps {val} out of range [{FPS_MIN},{FPS_MAX}] — using native {MODEL.fps}",
               flush=True)
-        return FPS
+        return MODEL.fps
     return val
 
 
@@ -112,7 +112,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         if path == "/healthz":
-            return self._send(200, {"status": "ok", "model": ACTIVE, "fps": FPS, "dof": DOF,
+            return self._send(200, {"status": "ok", "model": ACTIVE, "fps": MODEL.fps, "dof": DOF,
                                     "target_fps": _resolve_fps(None), "device": MODEL.device})
         if path == "/meta":
             return self._send(200, {**META, "model": ACTIVE})
@@ -144,8 +144,8 @@ class Handler(BaseHTTPRequestHandler):
     def _infer(self, audio, q):
         cmd, timing = MODEL.infer_timed(audio)
         eff_fps = _resolve_fps(q)
-        if eff_fps != FPS:
-            cmd = resample_commands(cmd, FPS, eff_fps)
+        if eff_fps != MODEL.fps:
+            cmd = resample_commands(cmd, MODEL.fps, eff_fps)
             timing = {**timing, "fps": eff_fps, "n_frames": int(len(cmd))}
         fmt = (q.get("format", ["json"])[0]).lower()
         if fmt == "npy":
@@ -168,8 +168,8 @@ class Handler(BaseHTTPRequestHandler):
         paced = q.get("paced", ["0"])[0] in ("1", "true", "yes")
         cmd, timing = MODEL.infer_timed(audio)
         eff_fps = _resolve_fps(q)
-        if eff_fps != FPS:
-            cmd = resample_commands(cmd, FPS, eff_fps)
+        if eff_fps != MODEL.fps:
+            cmd = resample_commands(cmd, MODEL.fps, eff_fps)
             timing = {**timing, "fps": eff_fps, "n_frames": int(len(cmd))}
         self.send_response(200)
         self.send_header("Content-Type", "application/x-ndjson")
