@@ -16,7 +16,7 @@
       1
     ],
     "range_note": "[0,1] applies to models a/b/zha. Wide-range model xba outputs the TRUE per-DoF command (see ranges_xb), envelope ~[-1.0,+1.6].",
-    "note": "13-DoF servo command per 10 fps frame; DoF 5,7,10,11 derived internally; DoF 1,3 constant 0.33",
+    "note": "13-DoF servo command per frame at the model's native fps (default 10; fps25=25 — see fps_note, runtime auto-detects per model); DoF 5,7,10,11 derived internally; DoF 1,3 constant 0.33",
     "fps_note": "a/b/zha/xba = 10 fps; fps25 = 25 fps. The runtime auto-detects per model."
   },
   "device": "cuda or cpu",
