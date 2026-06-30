@@ -11,6 +11,9 @@ models:
   a: audioaction_a.pt              # English — all data                       (output [0,1])
   b: audioaction_b.pt              # English — held-out variant               (output [0,1])
   zha: audioaction_zha.pt          # combined EN+ZH all-data (Chinese-capable) — default  (output [0,1])
-  xba: audioaction_xba.pt          # round-2 WIDE-RANGE, voice zf_xiaobei, all-data   (output TRUE ~[-1.0,1.6])
-# NOTE: xba emits the TRUE wide-range command (per-DoF ranges_xb in meta.json), NOT [0,1].
-#       Its PWM map must cover that range. To serve it:  model: xba   (or `--model xba`).
+  xba: audioaction_xba.pt          # round-2 WIDE-RANGE, voice zf_xiaobei, all-data   (output TRUE ~[-1.0,1.6], 10fps)
+  fps25: audioaction_fps25.pt      # round-2 WIDE-RANGE, NATIVE 25 fps, single closed-lip ref (output TRUE ~[-0.74,1.6])
+# NOTE: xba and fps25 emit the TRUE wide-range command (per-DoF ranges_xb in meta.json), NOT [0,1];
+#       their PWM map must cover that range. fps25 outputs at 25 fps (750 frames/30s chunk) — the
+#       runtime auto-detects this from the model, so no other change is needed. To serve it:
+#       model: fps25   (or `serve.py --model fps25`).  Default stays `zha` for backward compatibility.

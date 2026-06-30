@@ -81,7 +81,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         if path == "/healthz":
-            return self._send(200, {"status": "ok", "model": ACTIVE, "fps": FPS, "dof": DOF,
+            return self._send(200, {"status": "ok", "model": ACTIVE, "fps": MODEL.fps, "dof": DOF,
                                     "device": MODEL.device})
         if path == "/meta":
             return self._send(200, {**META, "model": ACTIVE})
@@ -119,14 +119,14 @@ class Handler(BaseHTTPRequestHandler):
                               extra={"Content-Disposition": "attachment; filename=commands.npy",
                                      "X-Timing": json.dumps(timing)})
         if fmt == "csv":
-            t = (np.arange(len(cmd)) / FPS)[:, None]
+            t = (np.arange(len(cmd)) / MODEL.fps)[:, None]
             hdr = "time_s," + ",".join(f"dof{j}" for j in range(DOF))
             txt = io.StringIO(); np.savetxt(txt, np.concatenate([t, cmd], 1), delimiter=",",
                                             header=hdr, comments="", fmt="%.5f")
             return self._send(200, txt.getvalue(), ctype="text/csv",
                               extra={"Content-Disposition": "attachment; filename=commands.csv",
                                      "X-Timing": json.dumps(timing)})
-        return self._send(200, {"n_frames": int(len(cmd)), "fps": FPS, "dof": DOF, "model": ACTIVE,
+        return self._send(200, {"n_frames": int(len(cmd)), "fps": MODEL.fps, "dof": DOF, "model": ACTIVE,
                                 "commands": np.round(cmd, 5).tolist(), "timing": timing})
 
     def _stream(self, audio, q):
@@ -142,14 +142,14 @@ class Handler(BaseHTTPRequestHandler):
             line = (json.dumps(obj) + "\n").encode()
             self.wfile.write(f"{len(line):X}\r\n".encode() + line + b"\r\n"); self.wfile.flush()
 
-        chunk({"event": "start", "n_frames": int(len(cmd)), "fps": FPS, "timing": timing})
+        chunk({"event": "start", "n_frames": int(len(cmd)), "fps": MODEL.fps, "timing": timing})
         t0 = time.time()
         for i in range(len(cmd)):
             if paced:
-                dt = t0 + i / FPS - time.time()
+                dt = t0 + i / MODEL.fps - time.time()
                 if dt > 0:
                     time.sleep(dt)
-            chunk({"i": i, "t": round(i / FPS, 3), "cmd": np.round(cmd[i], 5).tolist()})
+            chunk({"i": i, "t": round(i / MODEL.fps, 3), "cmd": np.round(cmd[i], 5).tolist()})
         chunk({"event": "end"})
         self.wfile.write(b"0\r\n\r\n"); self.wfile.flush()
 

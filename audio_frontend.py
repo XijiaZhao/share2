@@ -72,10 +72,11 @@ def _pad_or_trim(x, length=CHUNK_FRAMES):
     return x
 
 
-def wav_to_chunks(audio, device="cuda"):
-    """Waveform -> (list of (1,80,3000) input chunks, valid-frames per chunk, T command frames)."""
+def wav_to_chunks(audio, device="cuda", fps=10):
+    """Waveform -> (list of (1,80,3000) input chunks, valid 50Hz feature-frames per chunk,
+    T command frames at `fps`). fps defaults to 10 (a/b/zha); the 25fps model passes fps=25."""
     n = len(audio)
-    T = int(round(n / SPF))
+    T = int(round(n / (SR / fps)))                           # SR/fps = audio samples per cmd frame
     feat = _features(audio, device)                          # (80, M)
     M = feat.shape[1]
     chunks, nvalid, seek = [], [], 0
