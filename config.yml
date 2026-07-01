@@ -13,7 +13,11 @@ models:
   zha: audioaction_zha.pt          # combined EN+ZH all-data (Chinese-capable) — default  (output [0,1])
   xba: audioaction_xba.pt          # round-2 WIDE-RANGE, voice zf_xiaobei, all-data   (output TRUE ~[-1.0,1.6], 10fps)
   fps25: audioaction_fps25.pt      # round-2 WIDE-RANGE, NATIVE 25 fps, single closed-lip ref (output TRUE ~[-0.74,1.6])
-# NOTE: xba and fps25 emit the TRUE wide-range command (per-DoF ranges_xb in meta.json), NOT [0,1];
-#       their PWM map must cover that range. fps25 outputs at 25 fps (750 frames/30s chunk) — the
-#       runtime auto-detects this from the model, so no other change is needed. To serve it:
-#       model: fps25   (or `serve.py --model fps25`).  Default stays `zha` for backward compatibility.
+  fps10630: audioaction_fps10630.pt # round-2 WIDE-RANGE, NATIVE 10 fps, ref_9364 (10EN+10ZH)  (output TRUE ~[-0.69,1.15])
+# NOTE: xba, fps25 and fps10630 emit the TRUE wide-range command (per-DoF ranges_xb in meta.json),
+#       NOT [0,1]; their PWM map must cover that range. fps25 outputs at 25 fps (750 frames/30s chunk);
+#       fps10630 outputs at 10 fps (300 frames/30s chunk, like a/b/zha/xba). The runtime auto-detects
+#       the fps from the model, so no other change is needed. To serve one:
+#       model: fps10630   (or `serve.py --model fps10630`).  Default stays `zha` for backward compat.
+#       NOTE: fps10630's mouth floors ~0.13 (its ref_9364 is a slightly-open pose) — it does not fully
+#       close, unlike fps25 (built from the fully-closed #3351 ref).

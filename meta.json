@@ -17,7 +17,7 @@
     ],
     "range_note": "[0,1] applies to models a/b/zha. Wide-range model xba outputs the TRUE per-DoF command (see ranges_xb), envelope ~[-1.0,+1.6].",
     "note": "13-DoF servo command per 10 fps frame; DoF 5,7,10,11 derived internally; DoF 1,3 constant 0.33",
-    "fps_note": "a/b/zha/xba = 10 fps; fps25 = 25 fps. The runtime auto-detects per model."
+    "fps_note": "a/b/zha/xba/fps10630 = 10 fps; fps25 = 25 fps. The runtime auto-detects per model."
   },
   "device": "cuda or cpu",
   "models": [
@@ -25,7 +25,8 @@
     "b",
     "zha",
     "xba",
-    "fps25"
+    "fps25",
+    "fps10630"
   ],
   "model_info": {
     "a": {
@@ -61,10 +62,22 @@
       "fps": 25,
       "velP9_at_8fps": 0.71,
       "openness_pc1_at_8fps": 0.83
+    },
+    "fps10630": {
+      "lang": "en+zh",
+      "voice": "zf_xiaobei",
+      "data": "all (round-2 wide range, native 10fps, ref_9364 slightly-open ref, 10EN+10ZH)",
+      "output": "TRUE wide-range (ranges_xb)",
+      "wide_range": true,
+      "fps": 10,
+      "velP9": 0.505,
+      "openness_pc1": 0.706,
+      "note": "mouth floors ~0.13 (ref_9364 is jaw~0.2); does not fully close"
     }
   },
   "ranges_xb": {
     "applies_to": [
+      "fps10630",
       "fps25",
       "xba"
     ],
