@@ -10,10 +10,11 @@ import argparse
 import json
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs, quote
 
 import numpy as np
 import yaml
@@ -52,16 +53,40 @@ def nearest_frames(cmds):
     return (nn + 1).astype(int).tolist(), int(len(np.unique(nn)))
 
 
-def call_model(wav_bytes):
+def call_model(wav_bytes, model=None):
     url = CFG["model_url"].rstrip("/") + "/infer"
+    if model:
+        url += "?model=" + quote(model)
     req = urllib.request.Request(url, data=wav_bytes, method="POST",
                                  headers={"Content-Type": "audio/wav"})
-    with urllib.request.urlopen(req, timeout=120) as r:
-        res = json.loads(r.read())
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            res = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        try:
+            res = json.loads(e.read())
+        except Exception:
+            raise RuntimeError(f"model server HTTP {e.code}") from e
     if "error" in res:
         raise RuntimeError(res["error"])
     return (np.asarray(res["commands"], np.float32), res.get("timing", {}),
             res.get("model"), int(res.get("fps", 10) or 10))
+
+
+def model_list():
+    """Ask the model server which checkpoints it can serve (older servers: fall back to active)."""
+    base = CFG["model_url"].rstrip("/")
+    try:
+        with urllib.request.urlopen(base + "/models", timeout=5) as r:
+            d = json.loads(r.read())
+        return d.get("models", []), d.get("active")
+    except Exception:
+        try:
+            with urllib.request.urlopen(base + "/healthz", timeout=5) as r:
+                d = json.loads(r.read())
+            return [d.get("model")] if d.get("model") else [], d.get("model")
+        except Exception:
+            return [], None
 
 
 def find_wav(name):
@@ -98,7 +123,9 @@ class Handler(BaseHTTPRequestHandler):
                 txt = p.with_suffix(".txt")
                 wavs.append({"name": p.name,
                              "label": txt.read_text(encoding="utf-8", errors="replace").strip()[:60] if txt.is_file() else p.stem})
-            return self._send(200, {"wavs": wavs, "model_url": CFG["model_url"]})
+            models, active = model_list()
+            return self._send(200, {"wavs": wavs, "model_url": CFG["model_url"],
+                                    "models": models, "active": active})
         if path.startswith("/lip/"):
             img = _abs(CFG["assets_dir"]) / CFG["lip_subdir"] / f"{int(path[5:]):05d}_lip.jpg"
             if not img.is_file():
@@ -113,15 +140,17 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        if urlparse(self.path).path != "/api/infer":
+        u = urlparse(self.path)
+        if u.path != "/api/infer":
             return self._send(404, {"error": "not found"})
+        model = parse_qs(u.query).get("model", [None])[0]
         n = int(self.headers.get("Content-Length", 0))
         wav = self.rfile.read(n) if n else b""
         if not wav:
             return self._send(400, {"error": "empty audio"})
         try:
             t0 = time.time()
-            cmd, timing, model_id, fps = call_model(wav)
+            cmd, timing, model_id, fps = call_model(wav, model)
             t_model = time.time() - t0
             t1 = time.time()
             frames, n_unique = nearest_frames(cmd)

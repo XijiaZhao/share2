@@ -40,6 +40,11 @@
 <div class="wrap">
   <div>
     <div class="panel">
+      <h3>0 · Model (checkpoint)</h3>
+      <select id="model"></select>
+      <div class="muted" style="margin-top:6px; font-size:12px;">first use of a checkpoint loads it on the server (a few seconds)</div>
+    </div>
+    <div class="panel sp">
       <h3>1 · Pick a preset wav</h3>
       <select id="preset"></select>
       <div class="row"><button id="btnPreset">Test preset</button></div>
@@ -96,8 +101,12 @@ let FRAMES = [], COMMANDS = [], RAF = null, FPS = 10;
 
 async function presets() {
   const d = await (await fetch('/api/presets')).json();
-  $('#modelinfo').textContent = 'audio → 13-DoF lip commands   ·   model: ' + d.model_url;
+  $('#modelinfo').textContent = 'audio → 13-DoF lip commands   ·   server: ' + d.model_url;
   $('#preset').innerHTML = d.wavs.map(w => `<option value="${w.name}">${w.name} — ${w.label}</option>`).join('');
+  const ms = d.models || [];
+  $('#model').innerHTML = ms.map(m =>
+    `<option value="${m}"${m===d.active?' selected':''}>${m}${m===d.active?' (server default)':''}</option>`).join('');
+  if (!ms.length) $('#model').innerHTML = '<option value="">(server default)</option>';
 }
 presets();
 
@@ -107,7 +116,8 @@ function fmt(x,u){ return (x==null?'–':x+(u||'')); }
 async function infer(blob, audioUrl){
   $('#err').textContent=''; setBusy(true); stop();
   try{
-    const d = await (await fetch('/api/infer',{method:'POST',headers:{'Content-Type':'audio/wav'},body:blob})).json();
+    const url = '/api/infer' + ($('#model').value ? '?model='+encodeURIComponent($('#model').value) : '');
+    const d = await (await fetch(url,{method:'POST',headers:{'Content-Type':'audio/wav'},body:blob})).json();
     if(d.error) throw new Error(d.error);
     FRAMES = d.frames; COMMANDS = d.commands; FPS = d.fps || 10;
     $('#fpsval').textContent = FPS;
@@ -152,7 +162,7 @@ function download(name, blob){ const a=document.createElement('a'); a.href=URL.c
   a.download=name; a.click(); }
 $('#dlCsv').onclick = () => {
   let s='time_s,'+Array.from({length:13},(_,j)=>'dof'+j).join(',')+'\n';
-  COMMANDS.forEach((c,i)=> s += (i/FPS).toFixed(2)+','+c.map(x=>x.toFixed(5)).join(',')+'\n');
+  COMMANDS.forEach((c,i)=> s += (i/FPS).toFixed(3)+','+c.map(x=>x.toFixed(5)).join(',')+'\n');
   download('commands.csv', new Blob([s],{type:'text/csv'}));
 };
 $('#dlJson').onclick = () => download('commands.json',
