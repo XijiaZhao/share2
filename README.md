@@ -15,6 +15,7 @@ audioaction_*.pt            the model files (TorchScript; pick one in config.yml
                               xba    English + Chinese, ROUND-2 WIDE RANGE (output TRUE ~[-1.0,1.6], 10 fps)
                               fps25  English + Chinese, WIDE RANGE, NATIVE 25 fps (output TRUE ~[-0.74,1.6])
                               fps10630 English + Chinese, WIDE RANGE, NATIVE 10 fps, ref_9364 (output TRUE ~[-0.69,1.15])
+                              fps25b English + Chinese, WIDE RANGE, NATIVE 25 fps, ref_9470_good (output TRUE ~[-0.84,1.31])
 config.yml                  host, port, device, and which model to serve
 meta.json                   input/output contract
 serve.py                    runs the model on a port
@@ -59,11 +60,11 @@ docker run -p 8025:8025 audioaction:1.0                # CPU only (omit --gpus)
 
 ## Choosing the model
 
-There are six model files. Select which one to serve in `config.yml`:
+There are seven model files. Select which one to serve in `config.yml`:
 
 ```yaml
 device: auto        # auto | cuda | cpu
-model: zha          # a | b | zha | xba | fps25 | fps10630   (default zha)
+model: zha          # a | b | zha | xba | fps25 | fps10630 | fps25b   (default zha)
 models:
   a:        audioaction_a.pt        # English                      output [0,1]   10 fps
   b:        audioaction_b.pt        # English, held-out variant    output [0,1]   10 fps
@@ -71,15 +72,20 @@ models:
   xba:      audioaction_xba.pt      # English+Chinese, WIDE RANGE  output TRUE ~[-1.0,1.6]  10 fps
   fps25:    audioaction_fps25.pt    # English+Chinese, WIDE RANGE, NATIVE 25 fps  output TRUE ~[-0.74,1.6]
   fps10630: audioaction_fps10630.pt # English+Chinese, WIDE RANGE, NATIVE 10 fps, ref_9364  output TRUE ~[-0.69,1.15]
+  fps25b:   audioaction_fps25b.pt   # English+Chinese, WIDE RANGE, NATIVE 25 fps, ref_9470_good  output TRUE ~[-0.84,1.31]
 ```
 
-or override at launch: `python serve.py --model fps25`. Check the active model (and its fps) with
+or override at launch: `python serve.py --model fps25b`. Check the active model (and its fps) with
 `GET /healthz`. **Default stays `zha` (`[0,1]`, 10 fps)** so existing `[0,1]→PWM` integrations are
-unaffected; switch to `xba`/`fps25` only once your PWM map covers the wide range (next section).
+unaffected; switch to a wide-range model (`xba`/`fps25`/`fps25b`) only once your PWM map covers the
+wide range (next section).
+
+Both 25 fps models fully close the lips (jaw → ~0.00); `fps25b` is the newer one (ref_9470_good, 5 new
+EN + 5 new ZH scripts). `fps10630` (10 fps) floors at jaw ~0.13 and does not fully close.
 
 **Frame rate is auto-detected** — the runtime reads it from the model (10 fps for a/b/zha/xba/fps10630,
-25 fps for `fps25`) and reports it in `/healthz`, `/infer`, and the stream pacing. No config knob to set; a
-25 fps clip just returns 2.5× as many frames over the same duration.
+25 fps for `fps25`/`fps25b`) and reports it in `/healthz`, `/infer`, and the stream pacing. No config knob to
+set; a 25 fps clip just returns 2.5× as many frames over the same duration.
 
 ## Output range — the wide-range `xba` model (read before mapping to PWM)
 
@@ -129,10 +135,12 @@ right-side mirrors** (slaved: `right = zone_max − left`, derived internally fr
 |---|---|---|---|
 | GET  | `/healthz` | — | `{status, model, fps:10, dof:13, device}` |
 | GET  | `/meta` | — | input/output contract |
+| GET  | `/models` | — | `{models:[keys], active, loaded}` |
 | POST | `/infer` | audio bytes (wav/flac/… or raw PCM, see below) | `{n_frames, fps, dof, commands:[[13]…], timing}` |
+| POST | `/infer?model=<key>` | audio | same, served by another checkpoint from `config.yml` (lazy-loaded once, then cached; also works on `/stream`) |
 | POST | `/infer?format=npy` | audio | `(T,13)` float32 `.npy` download (timing in `X-Timing` header) |
 | POST | `/infer?format=csv` | audio | `time_s` + 13 columns CSV |
-| POST | `/stream` | audio | NDJSON stream, one `{i,t,cmd[13]}` per frame; `?paced=1` emits at 10 fps |
+| POST | `/stream` | audio | NDJSON stream, one `{i,t,cmd[13]}` per frame; `?paced=1` emits at model fps |
 
 Raw PCM input (for a hardware audio pipeline) is accepted via header
 `X-Audio-Format: pcm_f32_16k` (float32) or `pcm_s16_16k` (int16), 16 kHz mono.

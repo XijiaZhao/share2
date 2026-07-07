@@ -5,18 +5,22 @@
 Endpoints
   GET  /healthz                  -> {status, model, fps, dof, device}
   GET  /meta                     -> I/O contract (meta.json)
+  GET  /models                   -> {models:[keys], active, loaded}
   POST /infer                    body = audio file bytes (wav/flac/…) OR raw float32 PCM @16k
                                  (header  X-Audio-Format: pcm_f32_16k / pcm_s16_16k).
+                                 ?model=<key>           -> use another model from config.yml
+                                                           (lazy-loaded once, then cached)
                                  ?format=json (default) -> {n_frames, fps, dof, commands, timing}
                                  ?format=npy            -> (T,13) float32 .npy download
                                  ?format=csv            -> time_s + 13 columns
-  POST /stream                   same input; streams NDJSON, one {i,t,cmd[13]} per frame
-                                 (?paced=1 emits at 10 fps wall-clock).
+  POST /stream                   same input (also takes ?model=); streams NDJSON, one
+                                 {i,t,cmd[13]} per frame (?paced=1 emits at model-fps wall-clock).
 """
 import argparse
 import io
 import json
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -31,6 +35,27 @@ import audio_frontend as af
 from runtime import Model, FPS, DOF
 
 CFG, MODEL, META, ACTIVE = {}, None, {}, None
+MODELS, _MLOCK = {}, threading.Lock()   # id -> loaded Model (lazy, incl. the default)
+
+
+def get_model(mid):
+    """Return (id, Model) for the requested model id (None/'' -> the default)."""
+    if not mid or mid == ACTIVE:
+        return ACTIVE, MODEL
+    files = CFG.get("models", {})
+    if mid not in files:
+        raise KeyError(f"unknown model '{mid}' (have {sorted(files)})")
+    with _MLOCK:
+        if mid not in MODELS:
+            mp = files[mid]
+            mp = mp if Path(mp).is_absolute() else HERE / mp
+            print(f"loading model '{mid}': {mp}  (device={CFG['device']})", flush=True)
+            m = Model(str(mp), device=CFG["device"])
+            if CFG.get("warmup", True):
+                m.warmup()
+            MODELS[mid] = m
+            print(f"model '{mid}' ready.", flush=True)
+    return mid, MODELS[mid]
 
 
 def load_config(path):
@@ -85,6 +110,9 @@ class Handler(BaseHTTPRequestHandler):
                                     "device": MODEL.device})
         if path == "/meta":
             return self._send(200, {**META, "model": ACTIVE})
+        if path == "/models":
+            return self._send(200, {"models": sorted(CFG.get("models", {})), "active": ACTIVE,
+                                    "loaded": sorted(MODELS)})
         if path in ("/", "/index.html"):
             return self._send(200, "POST audio to /infer (see /meta)\n", ctype="text/plain")
         return self._send(404, {"error": "not found"})
@@ -101,17 +129,21 @@ class Handler(BaseHTTPRequestHandler):
         if len(audio) / af.SR > CFG.get("max_audio_seconds", 300):
             return self._send(413, {"error": "audio too long"})
         try:
+            mid, model = get_model(q.get("model", [None])[0])
+        except KeyError as e:
+            return self._send(404, {"error": str(e).strip("'\"")})
+        try:
             if path == "/infer":
-                return self._infer(audio, q)
+                return self._infer(audio, q, mid, model)
             if path == "/stream":
-                return self._stream(audio, q)
+                return self._stream(audio, q, mid, model)
         except Exception as e:
             import traceback; traceback.print_exc()
             return self._send(500, {"error": f"{type(e).__name__}: {e}"})
         return self._send(404, {"error": "not found"})
 
-    def _infer(self, audio, q):
-        cmd, timing = MODEL.infer_timed(audio)
+    def _infer(self, audio, q, mid, model):
+        cmd, timing = model.infer_timed(audio)
         fmt = (q.get("format", ["json"])[0]).lower()
         if fmt == "npy":
             buf = io.BytesIO(); np.save(buf, cmd.astype(np.float32))
@@ -119,19 +151,19 @@ class Handler(BaseHTTPRequestHandler):
                               extra={"Content-Disposition": "attachment; filename=commands.npy",
                                      "X-Timing": json.dumps(timing)})
         if fmt == "csv":
-            t = (np.arange(len(cmd)) / MODEL.fps)[:, None]
+            t = (np.arange(len(cmd)) / model.fps)[:, None]
             hdr = "time_s," + ",".join(f"dof{j}" for j in range(DOF))
             txt = io.StringIO(); np.savetxt(txt, np.concatenate([t, cmd], 1), delimiter=",",
                                             header=hdr, comments="", fmt="%.5f")
             return self._send(200, txt.getvalue(), ctype="text/csv",
                               extra={"Content-Disposition": "attachment; filename=commands.csv",
                                      "X-Timing": json.dumps(timing)})
-        return self._send(200, {"n_frames": int(len(cmd)), "fps": MODEL.fps, "dof": DOF, "model": ACTIVE,
+        return self._send(200, {"n_frames": int(len(cmd)), "fps": model.fps, "dof": DOF, "model": mid,
                                 "commands": np.round(cmd, 5).tolist(), "timing": timing})
 
-    def _stream(self, audio, q):
+    def _stream(self, audio, q, mid, model):
         paced = q.get("paced", ["0"])[0] in ("1", "true", "yes")
-        cmd, timing = MODEL.infer_timed(audio)
+        cmd, timing = model.infer_timed(audio)
         self.send_response(200)
         self.send_header("Content-Type", "application/x-ndjson")
         self.send_header("Transfer-Encoding", "chunked")
@@ -142,14 +174,15 @@ class Handler(BaseHTTPRequestHandler):
             line = (json.dumps(obj) + "\n").encode()
             self.wfile.write(f"{len(line):X}\r\n".encode() + line + b"\r\n"); self.wfile.flush()
 
-        chunk({"event": "start", "n_frames": int(len(cmd)), "fps": MODEL.fps, "timing": timing})
+        chunk({"event": "start", "n_frames": int(len(cmd)), "fps": model.fps, "model": mid,
+               "timing": timing})
         t0 = time.time()
         for i in range(len(cmd)):
             if paced:
-                dt = t0 + i / MODEL.fps - time.time()
+                dt = t0 + i / model.fps - time.time()
                 if dt > 0:
                     time.sleep(dt)
-            chunk({"i": i, "t": round(i / MODEL.fps, 3), "cmd": np.round(cmd[i], 5).tolist()})
+            chunk({"i": i, "t": round(i / model.fps, 3), "cmd": np.round(cmd[i], 5).tolist()})
         chunk({"event": "end"})
         self.wfile.write(b"0\r\n\r\n"); self.wfile.flush()
 
@@ -180,6 +213,7 @@ def main():
     MODEL = Model(str(mp), device=CFG["device"])
     if CFG.get("warmup", True):
         MODEL.warmup(); print("ready.", flush=True)
+    MODELS[ACTIVE] = MODEL
 
     srv = ThreadingHTTPServer((CFG["host"], CFG["port"]), Handler)
     print(f"serving model '{ACTIVE}' on http://{CFG['host']}:{CFG['port']}  "
